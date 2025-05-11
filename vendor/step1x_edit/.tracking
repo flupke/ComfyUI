@@ -1,0 +1,17 @@
+.github/workflows/publish.yml
+LICENSE
+README.md
+Step1X-Edit-FP8.json
+__init__.py
+modules/__init__.py
+modules/attention.py
+modules/autoencoder.py
+modules/conditioner.py
+modules/connector_edit.py
+modules/layers.py
+modules/model_edit.py
+pyproject.toml
+requirements.txt
+sampling.py
+step1xeditnode.py
+test.py

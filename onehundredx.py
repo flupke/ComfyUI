@@ -113,7 +113,7 @@ def import_custom_nodes() -> None:
 from nodes import NODE_CLASS_MAPPINGS
 
 
-class Models:
+class IceEditModels:
     def __init__(self):
         dualcliploader = NODE_CLASS_MAPPINGS["DualCLIPLoader"]()
         self.dual_clip_loader = dualcliploader.load_clip(
@@ -136,8 +136,12 @@ class Models:
         )
 
 
-def edit(
-    models: Models, input_image: str, output_prefix: str, prompt: str, turbo: bool
+def edit_iceedit(
+    models: IceEditModels,
+    input_image: str,
+    output_prefix: str,
+    prompt: str,
+    turbo: bool,
 ):
     cliptextencode = NODE_CLASS_MAPPINGS["CLIPTextEncode"]()
     cliptextencode_7 = cliptextencode.encode(
@@ -257,27 +261,107 @@ def edit(
     )
 
 
+class Step1XEditModels:
+    def __init__(self):
+        from vendor.step1x_edit.step1xeditnode import ImageGenerator
+        import folder_paths
+
+        step1x_edit_model = "step1x-edit-i1258-FP8.safetensors"
+        step1x_edit_model_vae = "vae.safetensors"
+        mllm_model = "Qwen2.5-VL-7B-Instruct"
+        offload = False
+        quantized = True
+
+        self.image_edit = ImageGenerator(
+            ae_path=step1x_edit_model_vae,
+            dit_path=step1x_edit_model,
+            qwen2vl_model_path=os.path.join(
+                folder_paths.get_folder_paths("MLLM")[0], mllm_model
+            ),
+            max_length=640,
+            offload=offload,
+            quantized=quantized,
+        )
+
+    def generate_image(self, prompt, num_steps, cfg, seed, size_level, image):
+        image = self.image_edit.generate_image(
+            prompt,
+            negative_prompt="",
+            ref_images=image,
+            num_samples=1,
+            num_steps=num_steps,
+            cfg_guidance=cfg,
+            seed=seed,
+            show_progress=True,
+            size_level=size_level,
+        )
+
+        return (image,)
+
+
+def edit_step_1x(
+    model: Step1XEditModels, input_image: str, output_prefix: str, prompt: str
+):
+    loadimage = NODE_CLASS_MAPPINGS["LoadImage"]()
+    loadimage_3 = loadimage.load_image(image=input_image)
+
+    step_1xeditnode_6 = model.generate_image(
+        prompt=prompt,
+        seed=random.randint(1, 2**64),
+        cfg=6,
+        size_level=512,
+        num_steps=28,
+        image=get_value_at_index(loadimage_3, 0),
+    )
+
+    saveimage = NODE_CLASS_MAPPINGS["SaveImage"]()
+    saveimage.save_images(
+        filename_prefix=output_prefix, images=get_value_at_index(step_1xeditnode_6, 0)
+    )
+
+
 def main():
+    num_iterations = 128
+    model = "step_1x"
+
     for file in pathlib.Path("output").glob("*.png"):
         file.unlink()
-    source_image = "/home/flupke/Downloads/yuli.png"
+    source_image = "/home/flupke/Downloads/luper.png"
     shutil.copy(
         source_image, "/home/flupke/src/ext/ComfyUI/output/edit_output_0_00001_.png"
     )
 
     import_custom_nodes()
-    models = Models()
-    num_iterations = 128
+
+    if model == "iceedit":
+        models = IceEditModels()
+
+        def run(input_image: str, output_prefix: str, prompt: str):
+            edit_iceedit(
+                models=models,
+                input_image=input_image,
+                output_prefix=output_prefix,
+                prompt=prompt,
+                turbo=False,
+            )
+    else:
+        models = Step1XEditModels()
+
+        def run(input_image: str, output_prefix: str, prompt: str):
+            edit_step_1x(
+                models,
+                input_image=input_image,
+                output_prefix=output_prefix,
+                prompt=prompt,
+            )
 
     with torch.inference_mode():
         for i in range(1, num_iterations):
             print(f"Iteration {i}/{num_iterations}")
-            edit(
-                models=models,
+            run(
                 input_image=f"/home/flupke/src/ext/ComfyUI/output/edit_output_{i - 1}_00001_.png",
                 output_prefix=f"edit_output_{i}",
-                prompt="Make the photo look like a model studio shoot",
-                turbo=False,
+                prompt="Create an exact replica of this image, don't change a thing.",
             )
 
 
